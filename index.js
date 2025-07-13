@@ -22,7 +22,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// OpenAI setup (v4)
+// OpenAI setup
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -50,15 +50,43 @@ app.post("/webhook/whatsapp", async (req, res) => {
   console.log(`Received from ${from}: ${message}`);
 
   try {
-    // Ask OpenAI GPT
+    // 🧠 GPT Prompt
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: message }],
+      messages: [
+        {
+          role: "system",
+          content: `
+You are a smart virtual assistant for a SaaS company. 
+Your job is to:
+- Help users book appointments
+- Understand natural language like "tomorrow at 3 PM"
+- Extract info like name, time, contact details
+- Be friendly and concise
+- NEVER reply with just "OK", "Sorry", or unclear responses
+- Always confirm actions clearly
+If the user is unclear, politely ask for more info.
+`
+        },
+        {
+          role: "user",
+          content: message
+        }
+      ]
     });
 
-    const reply = completion.choices[0].message.content;
+    let reply = completion.choices[0].message.content.trim();
 
-    // Send reply via Twilio
+    // ✅ Filter junk replies
+    if (
+      reply.toLowerCase() === "ok" ||
+      reply.toLowerCase() === "okay" ||
+      reply.toLowerCase().includes("i cannot")
+    ) {
+      reply = "I'm here to help! Could you please provide more details?";
+    }
+
+    // 💬 Send reply via Twilio
     const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
     await client.messages.create({
@@ -67,7 +95,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       to: from,
     });
 
-    // Save chat to DB
+    // 💾 Save to Supabase
     await pool.query(`
       INSERT INTO messages (from_number, incoming_message, gpt_reply)
       VALUES ($1, $2, $3)
@@ -75,12 +103,12 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("Error handling WhatsApp:", err.message);
+    console.error("❌ Error handling WhatsApp:", err.message);
     res.sendStatus(500);
   }
 });
 
 // Start server
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
