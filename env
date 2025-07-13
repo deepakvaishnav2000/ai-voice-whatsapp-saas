@@ -1,0 +1,7 @@
+PORT=3000
+DATABASE_URL=your_supabase_db_url
+TWILIO_SID=your_twilio_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+OPENAI_API_KEY=your_openai_key
+WHATSAPP_NUMBER=your_whatsapp_number
+VOICE_NUMBER=your_voice_number
