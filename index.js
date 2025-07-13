@@ -5,7 +5,7 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const { Pool } = require("pg");
-const { Configuration, OpenAIApi } = require("openai");
+const OpenAI = require("openai");
 const twilio = require("twilio");
 
 const app = express();
@@ -22,15 +22,10 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// OpenAI setup
-
-const OpenAI = require("openai");
-
+// OpenAI setup (v4)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-
 
 // Health check route
 app.get("/", (req, res) => {
@@ -55,13 +50,13 @@ app.post("/webhook/whatsapp", async (req, res) => {
   console.log(`Received from ${from}: ${message}`);
 
   try {
-    // Call OpenAI
-    const completion = await openai.createChatCompletion({
+    // Ask OpenAI GPT
+    const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [{ role: "user", content: message }],
     });
 
-    const reply = completion.data.choices[0].message.content;
+    const reply = completion.choices[0].message.content;
 
     // Send reply via Twilio
     const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -72,7 +67,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       to: from,
     });
 
-    // Save to Supabase
+    // Save chat to DB
     await pool.query(`
       INSERT INTO messages (from_number, incoming_message, gpt_reply)
       VALUES ($1, $2, $3)
