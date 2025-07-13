@@ -76,17 +76,19 @@ app.post("/webhook/whatsapp", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `You are a smart WhatsApp appointment assistant for salon services. 
-Never say "I'm an AI" or "I can't help".
-If the user gives name, phone number, and time — just confirm the appointment.
-If anything is missing, ask politely ONCE.
-Never reply with only 'OK'. Always be helpful.`,
+            content: `You are a smart WhatsApp assistant. Never say you're an AI. If user gives name, phone number, and time — just confirm the appointment. Otherwise, ask politely only once. Never say just "OK".`,
           },
           { role: "user", content: message },
         ],
       });
 
-      reply = completion.choices[0].message.content;
+      reply = completion.choices[0].message.content?.trim();
+
+      // 🛑 Filter short or unhelpful replies
+      if (!reply || reply.toLowerCase() === "ok" || reply.length < 4) {
+        console.log("Skipping generic GPT reply:", reply);
+        return res.sendStatus(200);
+      }
     }
 
     // Send WhatsApp reply via Twilio
