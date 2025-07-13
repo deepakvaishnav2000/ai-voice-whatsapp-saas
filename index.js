@@ -23,9 +23,14 @@ const pool = new Pool({
 });
 
 // OpenAI setup
-const openai = new OpenAIApi(new Configuration({
+
+const OpenAI = require("openai");
+
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-}));
+});
+
+
 
 // Health check route
 app.get("/", (req, res) => {
