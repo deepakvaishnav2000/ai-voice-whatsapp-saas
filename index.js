@@ -1,12 +1,10 @@
-// Load environment variables
 require("dotenv").config();
-
-// Import libraries
 const express = require("express");
 const bodyParser = require("body-parser");
 const { Pool } = require("pg");
-const OpenAI = require("openai");
 const twilio = require("twilio");
+const chrono = require("chrono-node");
+const OpenAI = require("openai");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -16,23 +14,23 @@ app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Database connection (Supabase PostgreSQL)
+// PostgreSQL (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// OpenAI setup
+// OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Health check route
+// Health route
 app.get("/", (req, res) => {
   res.send("SaaS Backend is running!");
 });
 
-// Test DB route
+// DB test route
 app.get("/test-db", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -42,7 +40,7 @@ app.get("/test-db", async (req, res) => {
   }
 });
 
-// WhatsApp Webhook route
+// WhatsApp Webhook
 app.post("/webhook/whatsapp", async (req, res) => {
   const message = req.body.Body;
   const from = req.body.From;
@@ -50,43 +48,48 @@ app.post("/webhook/whatsapp", async (req, res) => {
   console.log(`Received from ${from}: ${message}`);
 
   try {
-    // 🧠 GPT Prompt
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `
-You are a smart virtual assistant for a SaaS company. 
-Your job is to:
-- Help users book appointments
-- Understand natural language like "tomorrow at 3 PM"
-- Extract info like name, time, contact details
-- Be friendly and concise
-- NEVER reply with just "OK", "Sorry", or unclear responses
-- Always confirm actions clearly
-If the user is unclear, politely ask for more info.
-`
-        },
-        {
-          role: "user",
-          content: message
-        }
-      ]
-    });
+    // Extract data
+    const nameMatch = message.match(/\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)\b/);
+    const phoneMatch = message.match(/\b\d{10}\b/);
+    const dateParsed = chrono.parseDate(message);
 
-    let reply = completion.choices[0].message.content.trim();
+    const name = nameMatch ? nameMatch[1] : null;
+    const phone = phoneMatch ? phoneMatch[0] : null;
+    const appointmentTime = dateParsed ? dateParsed.toISOString() : null;
 
-    // ✅ Filter junk replies
-    if (
-      reply.toLowerCase() === "ok" ||
-      reply.toLowerCase() === "okay" ||
-      reply.toLowerCase().includes("i cannot")
-    ) {
-      reply = "I'm here to help! Could you please provide more details?";
+    let reply = "";
+
+    // If all info found, confirm booking
+    if (name && phone && appointmentTime) {
+      await pool.query(
+        `INSERT INTO appointments (name, phone, time, source) VALUES ($1, $2, $3, 'whatsapp')`,
+        [name, phone, appointmentTime]
+      );
+
+      reply = `✅ Appointment booked for *${name}* at *${new Date(
+        appointmentTime
+      ).toLocaleString()}*. We’ll send you a reminder.`;
+    } else {
+      // Ask GPT to assist smartly
+      const completion = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: `You are a smart WhatsApp appointment assistant for salon services. 
+Never say "I'm an AI" or "I can't help".
+If the user gives name, phone number, and time — just confirm the appointment.
+If anything is missing, ask politely ONCE.
+Never reply with only 'OK'. Always be helpful.`,
+          },
+          { role: "user", content: message },
+        ],
+      });
+
+      reply = completion.choices[0].message.content;
     }
 
-    // 💬 Send reply via Twilio
+    // Send WhatsApp reply via Twilio
     const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
     await client.messages.create({
@@ -95,20 +98,20 @@ If the user is unclear, politely ask for more info.
       to: from,
     });
 
-    // 💾 Save to Supabase
-    await pool.query(`
-      INSERT INTO messages (from_number, incoming_message, gpt_reply)
-      VALUES ($1, $2, $3)
-    `, [from, message, reply]);
+    // Log message
+    await pool.query(
+      `INSERT INTO messages (from_number, incoming_message, gpt_reply) VALUES ($1, $2, $3)`,
+      [from, message, reply]
+    );
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Error handling WhatsApp:", err.message);
+    console.error("Error handling WhatsApp:", err.message);
     res.sendStatus(500);
   }
 });
 
 // Start server
 app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
